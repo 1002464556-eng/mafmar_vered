@@ -1,5 +1,4 @@
-
-  import streamlit as st
+import streamlit as st
 import pandas as pd
 import numpy as np
 import os
@@ -38,7 +37,6 @@ def clean_percentage(val):
     val_str = val_str.replace('%', '').replace(',', '')
     try:
         float_val = float(val_str)
-        # אם זה שבר עשרוני קטן מ-1 (למשל 0.85) ללא סימן %, נהפוך אותו ל-85%
         if float_val <= 1.0 and not has_percent and float_val > 0:
             return float_val * 100.0
         return float_val
@@ -57,11 +55,9 @@ def clean_numeric(val):
 
 def process_sheet(df, subject_name):
     """עיבוד וניקוי הנתונים של קובץ או לשונית באקסל"""
-    # ניקוי רווחים משמות העמודות
     df.columns = [str(c).strip() for c in df.columns]
     
     if 'מוסד' in df.columns:
-        # הסרת שורות סיכומים כלליים של המערכת
         df = df[~df['מוסד'].astype(str).str.contains('Totals|סיכום|total', na=False, case=False)]
         df = df[df['מוסד'].notna() & (df['מוסד'].astype(str).str.strip() != '')]
     else:
@@ -69,13 +65,11 @@ def process_sheet(df, subject_name):
     
     df['מקצוע'] = subject_name
     
-    # ניקוי עמודת כמות תלמידים
     if 'פוטנציאל תלמידים' in df.columns:
         df['פוטנציאל תלמידים'] = df['פוטנציאל תלמידים'].apply(clean_numeric)
     else:
         df['פוטנציאל תלמידים'] = 0
         
-    # ניקוי עמודת אחוז הביצוע
     target_col = 'אחוז תלמידים שביצעו משימה אחת לפחות'
     if target_col in df.columns:
         df['אחוז ביצוע'] = df[target_col].apply(clean_percentage)
@@ -97,7 +91,6 @@ def load_packaged_data():
     
     df_list = []
     
-    # 1. ניסיון טעינה מקבצי אקסל אם קיימים
     if excel_files:
         for file_path in excel_files:
             try:
@@ -111,7 +104,6 @@ def load_packaged_data():
             except:
                 continue
                 
-    # 2. ניסיון טעינה מקבצי CSV (תומך בקידוד עברית נפוץ של מערכות משרד החינוך)
     if not df_list and csv_files:
         for file_path in csv_files:
             df_csv = None
@@ -123,7 +115,6 @@ def load_packaged_data():
                     continue
             
             if df_csv is not None:
-                # זיהוי המקצוע לפי שם הקובץ (אם מופיע בשם הקובץ)
                 subj = 'מתמטיקה' if 'מתמטיקה' in file_path else ('מדעים' if 'מדעים' in file_path else 'כללי')
                 processed = process_sheet(df_csv, subj)
                 if not processed.empty:
@@ -134,12 +125,11 @@ def load_packaged_data():
         
     return pd.concat(df_list, ignore_index=True), None
 
-# ==================== טעינת הנתונים מהאריזה ====================
+# ==================== טעינת הנתונים ====================
 df_all, error_msg = load_packaged_data()
 
 if error_msg:
     st.error(f"❌ {error_msg}")
-    st.info("💡 הנחיה: ודא שהעלית את קובץ הנתונים שלך (בפורמט .csv או .xlsx) ישירות לתוך ה-Repository ב-GitHub.")
     st.stop()
 
 # ==================== חלק א': פילוח מחוזי ומדדים ====================
@@ -148,14 +138,11 @@ if 'מחוז' in df_all.columns:
     selected_district = st.selectbox("🎯 בחר מחוז לצפייה:", districts)
     
     df_dist = df_all[df_all['מחוז'] == selected_district]
-    
     st.markdown(f"### נתונים כלליים ומדדים עבור מחוז: **{selected_district}**")
     
     subjects_in_data = df_dist['מקצוע'].unique()
     
-    # תצוגה דינמית מותאמת לפי כמות המקצועות שזוהו בקובץ
     if len(subjects_in_data) == 1 and subjects_in_data[0] == 'כללי':
-        # מקרה של קובץ CSV בודד כללי (כמו הקובץ שלך)
         total_students = df_dist['פוטנציאל תלמידים'].sum()
         if total_students > 0:
             avg_pct = (df_dist['אחוז ביצוע'] * df_dist['פוטנציאל תלמידים']).sum() / total_students
@@ -164,15 +151,13 @@ if 'מחוז' in df_all.columns:
             
         st.markdown(f"""
         <div style="background-color: white; border-right: 5px solid #1D3557; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); direction: rtl; text-align: right;">
-            <div style="font-size: 1.1rem; font-weight: bold; color: #1D3557; margin-bottom: 5px; direction: rtl; text-align: right;">📊 משימת המפמ"ר - נתוני ביצוע</div>
-            <div style="font-size: 1.8rem; font-weight: bold; direction: rtl; text-align: right; color: #1e293b;">{avg_pct:.1f}% ביצוע מחוזי משוקלל</div>
-            <div style="color: #64748b; font-size: 0.9rem; margin-top: 5px; direction: rtl; text-align: right;">פוטנציאל תלמידים כולל במחוז: {total_students:,}</div>
+            <div style="font-size: 1.1rem; font-weight: bold; color: #1D3557; margin-bottom: 5px;">📊 משימת המפמ"ר - נתוני ביצוע</div>
+            <div style="font-size: 1.8rem; font-weight: bold; color: #1e293b;">{avg_pct:.1f}% ביצוע מחוזי משוקלל</div>
+            <div style="color: #64748b; font-size: 0.9rem; margin-top: 5px;">פוטנציאל תלמידים כולל במחוז: {total_students:,}</div>
         </div>
         """, unsafe_allow_html=True)
     else:
-        # מקרה של קובץ המכיל הפרדה מובנית למתמטיקה ומדעים
         col1, col2 = st.columns(2)
-        
         with col1:
             df_math_dist = df_dist[df_dist['מקצוע'] == 'מתמטיקה']
             if df_math_dist.empty: df_math_dist = df_dist 
@@ -183,10 +168,10 @@ if 'מחוז' in df_all.columns:
                 avg_pct_math = df_math_dist['אחוז ביצוע'].mean() if not df_math_dist.empty else 0.0
                 
             st.markdown(f"""
-            <div style="background-color: white; border-right: 5px solid #E63946; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); direction: rtl; text-align: right;">
-                <div style="font-size: 1.1rem; font-weight: bold; color: #E63946; margin-bottom: 5px; direction: rtl; text-align: right;">📐 מקצוע: מתמטיקה</div>
-                <div style="font-size: 1.8rem; font-weight: bold; direction: rtl; text-align: right; color: #1e293b;">{avg_pct_math:.1f}% ביצוע מחוזי</div>
-                <div style="color: #64748b; font-size: 0.9rem; margin-top: 5px; direction: rtl; text-align: right;">פוטנציאל תלמידים כולל: {total_students_math:,}</div>
+            <div style="background-color: white; border-right: 5px solid #E63946; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                <div style="font-size: 1.1rem; font-weight: bold; color: #E63946; margin-bottom: 5px;">📐 מקצוע: מתמטיקה</div>
+                <div style="font-size: 1.8rem; font-weight: bold; color: #1e293b;">{avg_pct_math:.1f}% ביצוע מחוזי</div>
+                <div style="color: #64748b; font-size: 0.9rem; margin-top: 5px;">פוטנציאל תלמידים כולל: {total_students_math:,}</div>
             </div>
             """, unsafe_allow_html=True)
             
@@ -200,16 +185,16 @@ if 'מחוז' in df_all.columns:
                 avg_pct_sci = df_sci_dist['אחוז ביצוע'].mean() if not df_sci_dist.empty else 0.0
                 
             st.markdown(f"""
-            <div style="background-color: white; border-right: 5px solid #1D3557; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); direction: rtl; text-align: right;">
-                <div style="font-size: 1.1rem; font-weight: bold; color: #1D3557; margin-bottom: 5px; direction: rtl; text-align: right;">🔬 מקצוע: מדעים</div>
-                <div style="font-size: 1.8rem; font-weight: bold; direction: rtl; text-align: right; color: #1e293b;">{avg_pct_sci:.1f}% ביצוע מחוזי</div>
-                <div style="color: #64748b; font-size: 0.9rem; margin-top: 5px; direction: rtl; text-align: right;">פוטנציאל תלמידים כולל: {total_students_sci:,}</div>
+            <div style="background-color: white; border-right: 5px solid #1D3557; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                <div style="font-size: 1.1rem; font-weight: bold; color: #1D3557; margin-bottom: 5px;">🔬 מקצוע: מדעים</div>
+                <div style="font-size: 1.8rem; font-weight: bold; color: #1e293b;">{avg_pct_sci:.1f}% ביצוע מחוזי</div>
+                <div style="color: #64748b; font-size: 0.9rem; margin-top: 5px;">פוטנציאל תלמידים כולל: {total_students_sci:,}</div>
             </div>
             """, unsafe_allow_html=True)
 
     st.divider()
     
-    # ==================== חלק ב': בחירת מפקח וצביעת מוסדות ====================
+    # ==================== חלק ב': בחירת מפקח וטבלאות ====================
     if 'מפקח' in df_dist.columns:
         sups = sorted(df_dist['מפקח'].dropna().unique())
         selected_supervisor = st.selectbox("👨‍🏫 בחר שם מפקח לקבלת מידע על מוסדותיו:", sups)
@@ -218,30 +203,25 @@ if 'מחוז' in df_all.columns:
             df_sup = df_dist[df_dist['מפקח'] == selected_supervisor]
             st.subheader(f"📋 רשימת מוסדות תחת פיקוחו/ה של: {selected_supervisor}")
             
-            # פונקציית צביעה מותנית לפי אחוזי הביצוע
             def color_picker(row):
                 val = row['אחוז ביצוע']
                 if val < 50.0:
-                    color = '#ffccd5'  # אדום בהיר (0-50%)
+                    color = '#ffccd5'
                 elif val <= 85.0:
-                    color = '#fef3c7'  # צהוב בהיר (50-85%)
+                    color = '#fef3c7'
                 else:
-                    color = '#d1fae5'  # ירוק בהיר (מעל 85%)
+                    color = '#d1fae5'
                 return [f'background-color: {color}; color: black; font-weight: 500;' for _ in row]
             
-            # עמודות להצגה בטבלה
             cols_to_show = ['מוסד', 'רשות', 'כיתה', 'מקבילה', 'פוטנציאל תלמידים', 'אחוז תלמידים שביצעו משימה אחת לפחות']
             available_cols = [c for c in cols_to_show if c in df_sup.columns] + ['אחוז ביצוע']
             
             if len(subjects_in_data) == 1 and subjects_in_data[0] == 'כללי':
-                # הצגה ישירה ללא טאבים אם יש רק מקצוע/קובץ אחד כללי
                 df_disp = df_sup[available_cols].copy().sort_values(by='אחוז ביצוע', ascending=True)
                 styled_df = df_disp.style.apply(color_picker, axis=1).format({'אחוז ביצוע': '{:.1f}%'})
                 st.dataframe(styled_df, use_container_width=True, hide_index=True)
             else:
-                # חלוקה לטאבים אם יש נתונים מופרדים
                 tab1, tab2 = st.tabs(["📐 מתמטיקה", "🔬 מדעים"])
-                
                 with tab1:
                     df_sup_math = df_sup[df_sup['מקצוע'] == 'מתמטיקה']
                     if not df_sup_math.empty:
@@ -260,17 +240,12 @@ if 'מחוז' in df_all.columns:
                     else:
                         st.info(f"לא נמצאו נתונים נפרדים במדעים עבור המפקח {selected_supervisor}.")
                     
-            # מקרא צבעים בתחתית הדף
             st.markdown("""
             <br>
-            <div style="background-color: white; padding: 12px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: inline-block; direction: rtl; text-align: right;">
+            <div style="background-color: white; padding: 12px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: inline-block;">
                 <strong style="color:#1d3557;">🎨 מקרא צבעים סטאטוס ביצוע ("אחוז תלמידים שביצעו משימה אחת לפחות"):</strong> &nbsp;&nbsp;
                 <span style="background-color: #ffccd5; padding: 4px 10px; border-radius: 4px; color: black; font-weight: bold;">🔴 0% - 50% (בסיכון גבוה)</span> &nbsp;&nbsp;
                 <span style="background-color: #fef3c7; padding: 4px 10px; border-radius: 4px; color: black; font-weight: bold;">🟡 50% - 85% (בטיפול)</span> &nbsp;&nbsp;
                 <span style="background-color: #d1fae5; padding: 4px 10px; border-radius: 4px; color: black; font-weight: bold;">🟢 85% ומעלה (מצוין)</span>
             </div>
             """, unsafe_allow_html=True)
-    else:
-        st.warning("לא נמצאה עמודת 'מפקח' בקובץ המקור.")
-else:
-    st.warning("לא נמצאה עמודת 'מחוז' בקובץ המקור.")
