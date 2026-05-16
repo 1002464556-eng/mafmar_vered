@@ -1,262 +1,245 @@
 import streamlit as st
 import pandas as pd
-import os
-import base64
+import numpy as np
 
-# ==================== הגדרות עמוד ====================
-st.set_page_config(page_title="ישראל ראלית - משימות מודל", layout="wide", page_icon="🇮🇱")
+# ==================== הגדרות עמוד ותצוגה ====================
+st.set_page_config(page_title="תלמידים אשר ביצעו את משימת המפמ\"ר", layout="wide", page_icon="📊")
 
+# עיצוב מותאם אישית לטובת יישור לימין (RTL) ומראה נקי
 st.markdown("""
 <style>
     .stApp { background-color: #f8fafc; }
-    * { direction: rtl; }
-    .math-title { color: #E63946; font-weight: bold; }
-    .sci-title { color: #1D3557; font-weight: bold; }
+    * { direction: rtl; text-align: right; }
     div[data-testid="metric-container"] {
         background-color: white;
         border-right: 5px solid #1D3557;
-        padding: 10px;
-        border-radius: 5px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
     }
+    .metric-title { font-size: 1.1rem; font-weight: bold; color: #1d3557; margin-bottom: 5px; text-align: right; }
+    .metric-value { font-size: 1.8rem; font-weight: bold; text-align: right; }
+    .stTabs [data-baseweb="tab-list"] { direction: rtl; }
 </style>
 """, unsafe_allow_html=True)
 
-# ==================== פונקציות עיבוד נתונים ====================
-def safe_read(f):
-    try:
-        if isinstance(f, str):
-            if f.endswith('.xlsx'): return pd.read_excel(f)
-            return pd.read_csv(f, encoding='utf-8-sig', dtype=str)
-        else: # תמיכה בקבצים מועלים דרך הממשק
-            if f.name.endswith('.xlsx'): return pd.read_excel(f)
-            return pd.read_csv(f, encoding='utf-8-sig', dtype=str)
-    except:
-        try: 
-            if isinstance(f, str):
-                return pd.read_csv(f, encoding='cp1255', dtype=str)
-            else:
-                return pd.read_csv(f, encoding='cp1255', dtype=str)
-        except: 
-            return pd.DataFrame()
-
-def get_all_data(uploaded_files=None):
-    # שילוב קבצים מהתיקייה המקומית וקבצים שהועלו בדפדפן
-    local_files = os.listdir('.') if os.path.exists('.') else []
-    
-    # מיון קובצי החרגה
-    excluded = []
-    # חפש בקבצים מקומיים
-    exc_f = next((f for f in local_files if 'להחרגה' in f), None)
-    if exc_f:
-        df_ex = safe_read(exc_f)
-        for col in df_ex.columns:
-            extracted = df_ex[col].astype(str).str.extract(r'(\d{6})')[0].dropna().tolist()
-            if extracted: excluded.extend(extracted)
-            
-    # חפש בקבצים שהועלו בממשק
-    if uploaded_files:
-        for f in uploaded_files:
-            if 'להחרגה' in f.name:
-                df_ex = safe_read(f)
-                for col in df_ex.columns:
-                    extracted = df_ex[col].astype(str).str.extract(r'(\d{6})')[0].dropna().tolist()
-                    if extracted: excluded.extend(extracted)
-
-    model_list = []
-    # קריאת קבצי מודל מקומיים
-    for f in [f for f in local_files if 'מודל' in f]:
-        df = safe_read(f)
-        if not df.empty: model_list.append((f, df))
-    # קריאת קבצי מודל מהדפדפן
-    if uploaded_files:
-        for f in uploaded_files:
-            if 'מודל' in f.name:
-                df = safe_read(f)
-                if not df.empty: model_list.append((f.name, df))
-
-    processed_model_list = []
-    for fname, df in model_list:
-        col_school = next((c for c in df.columns if 'מוסד' in c and 'סמל' not in c), None)
-        col_dist = next((c for c in df.columns if 'מחוז' in c), None)
-        col_sup = next((c for c in df.columns if 'מפקח' in c), None)
-        col_avg = next((c for c in df.columns if 'ממוצע' in c), None)
-        
-        if not col_school or not col_avg: continue
-        
-        temp = pd.DataFrame()
-        temp['סמל מוסד'] = df[col_school].astype(str).str.extract(r'(\d{6})')[0]
-        temp['מוסד'] = df[col_school].astype(str).str.replace(r'^\d{6}\s*-\s*', '', regex=True)
-        temp['מחוז תקשוב'] = df[col_dist].astype(str).str.strip() if col_dist else 'לא ידוע'
-        temp['שם מפקח'] = df[col_sup].astype(str).str.strip() if col_sup else 'לא ידוע'
-        temp['תחום'] = 'מתמטיקה' if 'מתמטיקה' in fname else 'מדעים'
-        temp['ממוצע משימות'] = pd.to_numeric(df[col_avg], errors='coerce').fillna(0).round(2)
-        
-        temp = temp[temp['סמל מוסד'].notna() & ~temp['סמל מוסד'].isin(excluded)]
-        processed_model_list.append(temp)
-
-    urg_list = []
-    # קריאת קבצי תפעולי מקומיים
-    for f in [f for f in local_files if 'תפעולי' in f]:
-        df = safe_read(f)
-        if not df.empty: urg_list.append((f, df))
-    # קריאת קבצי תפעולי מהדפדפן
-    if uploaded_files:
-        for f in uploaded_files:
-            if 'תפעולי' in f.name:
-                df = safe_read(f)
-                if not df.empty: urg_list.append((f.name, df))
-
-    processed_urg_list = []
-    for fname, df in urg_list:
-        col_pot = next((c for c in df.columns if 'פוטנציאל' in c), None)
-        col_perf = next((c for c in df.columns if 'שביצעו' in c and 'אחוז' not in c), None)
-        col_sup = next((c for c in df.columns if 'מפקח' in c), None)
-        col_school = next((c for c in df.columns if 'שם מוסד' in c or ('מוסד' in c and 'סמל' not in c)), None)
-        col_symbol = next((c for c in df.columns if 'סמל מוסד' in c), None)
-        
-        if not col_pot or not col_perf: continue
-
-        df['סמל'] = df[col_symbol].astype(str) if col_symbol else df[col_school].astype(str).str.extract(r'(\d{6})')[0]
-        df['שם'] = df[col_school].astype(str).str.replace(r'^\d{6}\s*-\s*', '', regex=True)
-        df['pot'] = pd.to_numeric(df[col_pot], errors='coerce').fillna(0)
-        df['perf'] = pd.to_numeric(df[col_perf], errors='coerce').fillna(0)
-        
-        df['אחוז'] = (df['perf'] / df['pot'] * 100).fillna(0)
-        urgent = df[df['אחוז'] < 50].copy()
-        
-        if not urgent.empty:
-            res = pd.DataFrame()
-            res['סמל מוסד'] = urgent['סמל']
-            res['מוסד'] = urgent['שם']
-            res['שם מפקח'] = urgent[col_sup].astype(str).str.strip() if col_sup else 'לא ידוע'
-            res['מחוז תקשוב'] = urgent[next((c for c in df.columns if 'מחוז' in c), 'District')].astype(str).str.strip()
-            res['תחום'] = 'מתמטיקה' if 'מתמטיקה' in fname else 'מדעים'
-            processed_urg_list.append(res)
-
-    all_model = pd.concat(processed_model_list).drop_duplicates(subset=['סמל מוסד', 'תחום'], keep='last') if processed_model_list else pd.DataFrame()
-    all_urg = pd.concat(processed_urg_list).drop_duplicates(subset=['סמל מוסד', 'תחום'], keep='last') if processed_urg_list else pd.DataFrame()
-    
-    if not all_model.empty:
-        all_model['שם מפקח'] = all_model['שם מפקח'].str.strip()
-        all_model['מחוז תקשוב'] = all_model['מחוז תקשוב'].str.strip()
-    if not all_urg.empty:
-        all_urg['שם מפקח'] = all_urg['שם מפקח'].str.strip()
-        all_urg['מחוז תקשוב'] = all_urg['מחוז תקשוב'].str.strip()
-        
-    return all_model, all_urg
-
-# ==================== פונקציה לייצור טבלת HTML ====================
-def render_html_table(df, domain=None, is_urgent=False):
-    if df.empty:
-        st.success("אין מוסדות להצגה.")
-        return
-
-    df_display = df.copy()
-    if not is_urgent and 'ממוצע משימות' in df_display.columns:
-        df_display['ממוצע משימות'] = df_display['ממוצע משימות'].map('{:.2f}'.format)
-
-    styler = df_display.style.hide(axis="index")
-
-    if not is_urgent:
-        def row_color(row):
-            try:
-                val = float(row['ממוצע משימות'])
-            except:
-                val = 0
-            limit_red = 5 if domain == 'מתמטיקה' else 2
-            limit_green = 12 if domain == 'מתמטיקה' else 6
-            color = '#fad2e1' if val < limit_red else ('#fefae0' if val < limit_green else '#d8f3dc')
-            return [f'background-color: {color}; color: black;' for _ in row]
-        styler = styler.apply(row_color, axis=1)
-
-    styler = styler.set_properties(subset=['סמל מוסד'], **{
-        'text-align': 'right', 
-        'width': '80px', 
-        'min-width': '80px', 
-        'white-space': 'nowrap'
-    })
-    
-    styler = styler.set_properties(subset=['מוסד'], **{
-        'text-align': 'right'
-    })
-    
-    if not is_urgent and 'ממוצע משימות' in df_display.columns:
-        styler = styler.set_properties(subset=['ממוצע משימות'], **{
-            'text-align': 'right', 
-            'width': '90px', 
-            'min-width': '90px'
-        })
-
-    styler.set_table_styles([
-        {'selector': 'table', 'props': [('width', '100%'), ('direction', 'rtl'), ('border-collapse', 'collapse'), ('margin-bottom', '20px')]},
-        {'selector': 'th', 'props': [('background-color', '#1D3557'), ('color', 'white'), ('padding', '8px'), ('text-align', 'right')]},
-        {'selector': 'td', 'props': [('padding', '8px'), ('border-bottom', '1px solid #ddd')]}
-    ])
-
-    st.markdown(styler.to_html(), unsafe_allow_html=True)
-
-# ==================== ממשק משתמש ====================
-st.title("ישראל ראלית - דשבורד מודל ז'")
+st.title("תלמידים אשר ביצעו את משימת המפמ\"ר")
 st.divider()
 
-# אפשרות להעלאת קבצים ישירות מהדפדפן
-st.sidebar.header("📂 טעינת קבצי נתונים")
-uploaded_files = st.sidebar.file_uploader("העלה קבצי אקסל או CSV (מודל / תפעולי / להחרגה):", accept_multiple_files=True)
+# ==================== פונקציות ניקוי ועיבוד נתונים ====================
+def clean_percentage(val):
+    """המרת ערכי אחוזים (טקסט, % או מספרים) למספר נקי בין 0 ל-100"""
+    if pd.isna(val):
+        return 0.0
+    val_str = str(val).strip()
+    if 'Totals' in val_str or val_str == '':
+        return 0.0
+    has_percent = '%' in val_str
+    val_str = val_str.replace('%', '')
+    try:
+        float_val = float(val_str)
+        # אם זה שבר עשרוני קטן מ-1 ללא סימן אחוז, נהפוך אותו לאחוז (למשל 0.85 -> 85%)
+        if float_val <= 1.0 and not has_percent and float_val > 0:
+            return float_val * 100.0
+        return float_val
+    except:
+        return 0.0
 
-df_model, df_urgent = get_all_data(uploaded_files)
+def clean_numeric(val):
+    """ניקוי פסיקים מנתוני כמות תלמידים והפיכה למספר שלם"""
+    if pd.isna(val):
+        return 0
+    val_str = str(val).replace(',', '').strip()
+    try:
+        return int(float(val_str))
+    except:
+        return 0
 
-if df_model.empty:
-    st.warning("🔄 אנא העלה קבצים המכילים את המילה 'מודל' או 'תפעולי' בסרגל הצד כדי להציג את הנתונים.")
+def process_sheet(df, subject_name):
+    """עיבוד וניקוי הנתונים של לשונית/קובץ ספציפי"""
+    # הסרת שורות סיכומים כלליים אם קיימות בקובץ
+    df = df[~df['מוסד'].astype(str).str.contains('Totals|סיכום|total', na=False, case=False)]
+    df = df[df['מוסד'].notna() & (df['מוסד'] != '')]
+    
+    df['מקצוע'] = subject_name
+    
+    # ניקוי עמודת כמות תלמידים
+    if 'פוטנציאל תלמידים' in df.columns:
+        df['פוטנציאל תלמידים'] = df['פוטנציאל תלמידים'].apply(clean_numeric)
+    else:
+        df['פוטנציאל תלמידים'] = 0
+        
+    # ניקוי עמודת אחוז הביצוע שביקשת
+    target_col = 'אחוז תלמידים שביצעו משימה אחת לפחות'
+    if target_col in df.columns:
+        df['אחוז ביצוע'] = df[target_col].apply(clean_percentage)
+    else:
+        # הגנה למקרה של שינוי קל בשם העמודה בקובץ
+        alt_col = [c for c in df.columns if 'ביצעו משימה אחת' in c or 'אחוז תלמידים שביצעו' in c]
+        if alt_col:
+            df['אחוז ביצוע'] = df[alt_col[0]].apply(clean_percentage)
+        else:
+            df['אחוז ביצוע'] = 0.0
+            
+    return df
+
+# ==================== טעינת קבצים מהממשק ====================
+st.sidebar.header("📂 טעינת קובץ המפמ\"ר")
+uploaded_file = st.sidebar.file_uploader("העלה את קובץ הנתונים (Excel או CSV):", type=["xlsx", "csv"])
+
+df_all = pd.DataFrame()
+
+if uploaded_file is not None:
+    # טיפול בקובץ אקסל (תומך ב-2 לשוניות: מדעים ומתמטיקה)
+    if uploaded_file.name.endswith('.xlsx'):
+        excel_file = pd.ExcelFile(uploaded_file)
+        sheets = excel_file.sheet_names
+        
+        df_list = []
+        # חיפוש אוטומטי של הלשוניות לפי השם שלהן
+        math_sheet = next((s for s in sheets if 'מתמטיקה' in s), None)
+        sci_sheet = next((s for s in sheets if 'מדעים' in s), None)
+        
+        if math_sheet:
+            df_math = pd.read_excel(uploaded_file, sheet_name=math_sheet, dtype=str)
+            df_list.append(process_sheet(df_math, 'מתמטיקה'))
+        if sci_sheet:
+            df_sci = pd.read_excel(uploaded_file, sheet_name=sci_sheet, dtype=str)
+            df_list.append(process_sheet(df_sci, 'מדעים'))
+            
+        # אם הלשוניות לא נקראו בדיוק בשמות האלו, נאפשר למשתמש לבחור אותן ידנית
+        if not df_list:
+            st.warning("⚠️ לא נמצאו לשוניות מדויקות בשם 'מתמטיקה' או 'מדעים'. אנא שייך את הלשוניות:")
+            selected_math = st.selectbox("בחר לשונית עבור מתמטיקה:", ["ללא"] + sheets)
+            selected_sci = st.selectbox("בחר לשונית עבור מדעים:", ["ללא"] + sheets)
+            
+            if selected_math != "ללא":
+                df_math = pd.read_excel(uploaded_file, sheet_name=selected_math, dtype=str)
+                df_list.append(process_sheet(df_math, 'מתמטיקה'))
+            if selected_sci != "ללא":
+                df_sci = pd.read_excel(uploaded_file, sheet_name=selected_sci, dtype=str)
+                df_list.append(process_sheet(df_sci, 'מדעים'))
+        
+        if df_list:
+            df_all = pd.concat(df_list, ignore_index=True)
+            
+    # טיפול בקובץ CSV בודד (למשל הקובץ שהעלית npnr)
+    elif uploaded_file.name.endswith('.csv'):
+        subject = st.sidebar.radio("לאיזה מקצוע שייך קובץ ה-CSV שהעלית?", ["מתמטיקה", "מדעים"])
+        try:
+            df_csv = pd.read_csv(uploaded_file, encoding='utf-8-sig', dtype=str)
+        except:
+            df_csv = pd.read_csv(uploaded_file, encoding='cp1255', dtype=str)
+            
+        df_all = process_sheet(df_csv, subject)
+
+# אם לא הועלה קובץ, נציג הודעה ידידותית למשתמש
+if df_all.empty:
+    st.info("💡 אנא העלה את קובץ המפמ\"ר שלך בסרגל הצד כדי להציג את הנתונים.")
     st.stop()
 
-districts = sorted([d for d in df_model['מחוז תקשוב'].unique() if pd.notna(d) and d != 'לא ידוע'])
-district = st.sidebar.selectbox("בחר מחוז:", districts) if districts else ""
-
-if district:
-    df_dist = df_model[df_model['מחוז תקשוב'] == district]
-    sups = sorted([s for s in df_dist['שם מפקח'].unique() if pd.notna(s) and s != 'לא ידוע'])
-    supervisor = st.selectbox("בחר מפקח/ת:", sups) if sups else ""
-
-    col1, col2 = st.columns(2)
-    with col1:
-        math_avg = df_dist[df_dist['תחום'] == 'מתמטיקה']['ממוצע משימות'].mean()
-        st.markdown("<h3 class='math-title'>📐 מתמטיקה</h3>", unsafe_allow_html=True)
-        st.metric("ממוצע משימות מחוזי", f"{math_avg:.2f}" if pd.notna(math_avg) else "0.00")
-    with col2:
-        sci_avg = df_dist[df_dist['תחום'] == 'מדעים']['ממוצע משימות'].mean()
-        st.markdown("<h3 class='sci-title'>🔬 מדעים</h3>", unsafe_allow_html=True)
-        st.metric("ממוצע משימות מחוזי", f"{sci_avg:.2f}" if pd.notna(sci_avg) else "0.00")
+# ==================== חלק א': פילוח מחוזי ומדדים ====================
+if 'מחוז' in df_all.columns:
+    districts = sorted(df_all['מחוז'].dropna().unique())
+    selected_district = st.selectbox("🎯 שלב 1: בחר מחוז לצפייה:", districts)
     
+    df_dist = df_all[df_all['מחוז'] == selected_district]
+    
+    st.markdown(f"### נתונים כלליים עבור מחוז: **{selected_district}**")
+    col1, col2 = st.columns(2)
+    
+    # חישוב נתונים למתמטיקה
+    with col1:
+        df_math_dist = df_dist[df_dist['מקצוע'] == 'מתמטיקה']
+        total_students_math = df_math_dist['פוטנציאל תלמידים'].sum()
+        if total_students_math > 0:
+            avg_pct_math = (df_math_dist['אחוז ביצוע'] * df_math_dist['פוטנציאל תלמידים']).sum() / total_students_math
+        else:
+            avg_pct_math = df_math_dist['אחוז ביצוע'].mean() if not df_math_dist.empty else 0.0
+            
+        st.markdown(f"""
+        <div style="background-color: white; border-right: 5px solid #E63946; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+            <div class="metric-title">📐 מקצוע: מתמטיקה</div>
+            <div class="metric-value">{avg_pct_math:.1f}% ביצוע מחוזי</div>
+            <div style="color: #64748b; font-size: 0.9rem; margin-top: 5px;">כמות תלמידים כוללת: {total_students_math:,}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    # חישוב נתונים למדעים
+    with col2:
+        df_sci_dist = df_dist[df_dist['מקצוע'] == 'מדעים']
+        total_students_sci = df_sci_dist['פוטנציאל תלמידים'].sum()
+        if total_students_sci > 0:
+            avg_pct_sci = (df_sci_dist['אחוז ביצוע'] * df_sci_dist['פוטנציאל תלמידים']).sum() / total_students_sci
+        else:
+            avg_pct_sci = df_sci_dist['אחוז ביצוע'].mean() if not df_sci_dist.empty else 0.0
+            
+        st.markdown(f"""
+        <div style="background-color: white; border-right: 5px solid #1D3557; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+            <div class="metric-title">🔬 מקצוע: מדעים</div>
+            <div class="metric-value">{avg_pct_sci:.1f}% ביצוע מחוזי</div>
+            <div style="color: #64748b; font-size: 0.9rem; margin-top: 5px;">כמות תלמידים כוללת: {total_students_sci:,}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
     st.divider()
-
-    if supervisor:
-        df_sup = df_dist[df_dist['שם מפקח'] == supervisor]
+    
+    # ==================== חלק ב': בחירת מפקח וצביעת מוסדות ====================
+    if 'מפקח' in df_dist.columns:
+        sups = sorted(df_dist['מפקח'].dropna().unique())
+        selected_supervisor = st.selectbox("👨‍🏫 שלב 2: בחר שם מפקח לקבלת מידע על מוסדותיו:", sups)
         
-        st.subheader(f"ביצועי מוסדות - {supervisor}")
-        tab1, tab2 = st.tabs(["מתמטיקה", "מדעים"])
-        
-        with tab1:
-            data_m = df_sup[df_sup['תחום'] == 'מתמטיקה'][['סמל מוסד', 'מוסד', 'ממוצע משימות']].sort_values('ממוצע משימות', ascending=False)
-            render_html_table(data_m, domain='מתמטיקה', is_urgent=False)
+        if selected_supervisor:
+            df_sup = df_dist[df_dist['מפקח'] == selected_supervisor]
+            st.subheader(f"📋 רשימת מוסדות תחת פיקוחו/ה של: {selected_supervisor}")
             
-        with tab2:
-            data_s = df_sup[df_sup['תחום'] == 'מדעים'][['סמל מוסד', 'מוסד', 'ממוצע משימות']].sort_values('ממוצע משימות', ascending=False)
-            render_html_table(data_s, domain='מדעים', is_urgent=False)
-
-        st.divider()
-        st.header("🚨 מוקדי התערבות דחופים (פחות מ-50% ביצוע)")
-        
-        if not df_urgent.empty:
-            df_urg_filtered = df_urgent[(df_urgent['מחוז תקשוב'] == district) & (df_urgent['שם מפקח'] == supervisor)]
+            # פונקציית עיצוב וצביעה לפי התנאים שביקשת
+            def color_picker(row):
+                val = row['אחוז ביצוע']
+                if val < 50.0:
+                    color = '#ffccd5'  # אדום בהיר (0-50%)
+                elif val <= 85.0:
+                    color = '#fef3c7'  # צהוב בהיר (50-85%)
+                else:
+                    color = '#d1fae5'  # ירוק בהיר (מעל 85%)
+                return [f'background-color: {color}; color: black;' for _ in row]
             
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("### מתמטיקה")
-                urg_m = df_urg_filtered[df_urg_filtered['תחום'] == 'מתמטיקה'][['סמל מוסד', 'מוסד']]
-                render_html_table(urg_m, is_urgent=True)
-                
-            with c2:
-                st.markdown("### מדעים")
-                urg_s = df_urg_filtered[df_urg_filtered['תחום'] == 'מדעים'][['סמל מוסד', 'מוסד']]
-                render_html_table(urg_s, is_urgent=True)
+            # עמודות להצגה בטבלה
+            cols_to_show = ['מוסד', 'רשות', 'כיתה', 'מקבילה', 'פוטנציאל תלמידים', 'אחוז תלמידים שביצעו משימה אחת לפחות']
+            available_cols = [c for c in cols_to_show if c in df_sup.columns] + ['אחוז ביצוע']
+            
+            tab1, tab2 = st.tabs(["📐 מתמטיקה", "🔬 מדעים"])
+            
+            with tab1:
+                df_sup_math = df_sup[df_sup['מקצוע'] == 'מתמטיקה']
+                if not df_sup_math.empty:
+                    df_disp_math = df_sup_math[available_cols].copy().sort_values(by='אחוז ביצוע', ascending=True)
+                    # שינוי פורמט התצוגה של אחוז הביצוע שיראה יפה
+                    styled_math = df_disp_math.style.apply(color_picker, axis=1).format({'אחוז ביצוע': '{:.1f}%'})
+                    st.dataframe(styled_math, use_container_width=True, hide_index=True)
+                else:
+                    st.info(f"לא נמצאו נתונים במתמטיקה עבור המפקח {selected_supervisor} במחוז זה.")
+                    
+            with tab2:
+                df_sup_sci = df_sup[df_sup['מקצוע'] == 'מדעים']
+                if not df_sup_sci.empty:
+                    df_disp_sci = df_sup_sci[available_cols].copy().sort_values(by='אחוז ביצוע', ascending=True)
+                    styled_sci = df_disp_sci.style.apply(color_picker, axis=1).format({'אחוז ביצוע': '{:.1f}%'})
+                    st.dataframe(styled_sci, use_container_width=True, hide_index=True)
+                else:
+                    st.info(f"לא נמצאו נתונים במדעים עבור המפקח {selected_supervisor} במחוז זה.")
+                    
+            # מקרא צבעים בתחתית
+            st.markdown("""
+            <br>
+            <div style="background-color: white; padding: 10px; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: inline-block;">
+                <strong>🎨 מקרא צבעים (אחוז תלמידים שביצעו משימה אחת לפחות):</strong> &nbsp;
+                <span style="background-color: #ffccd5; padding: 3px 8px; border-radius: 3px; color: black;">🔴 0% - 50%</span> &nbsp;
+                <span style="background-color: #fef3c7; padding: 3px 8px; border-radius: 3px; color: black;">🟡 50% - 85%</span> &nbsp;
+                <span style="background-color: #d1fae5; padding: 3px 8px; border-radius: 3px; color: black;">🟢 85% ומעלה</span>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.warning("לא נמצאה עמודת 'מפקח' בקובץ שהועלה.")
+else:
+    st.warning("לא נמצאה עמודת 'מחוז' בקובץ שהועלה.")
